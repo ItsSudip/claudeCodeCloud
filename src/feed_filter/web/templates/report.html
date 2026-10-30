@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ report.title }} · The Feed Filter{% endblock %}
+{% block body %}
+<div class="layout">
+  <aside>
+    <h3 class="muted" style="margin-top:0">Past digests</h3>
+    <ul>
+      {% for r in reports %}<li class="{{ 'active' if r.id == report.id else '' }}"><a href="/reports/{{ r.id }}">{{ r.report_date }}</a> <span class="pill">{{ r.item_count }}</span></li>{% endfor %}
+    </ul>
+  </aside>
+  <main>
+    <p class="muted" style="margin-top:0"><a href="/">← All digests</a> · <a href="/reports/{{ report.id }}/raw">Raw markdown</a> · <a href="/api/reports/{{ report.id }}">JSON</a></p>
+    <article>{{ body_html | safe }}</article>
+  </main>
+</div>
+{% endblock %}

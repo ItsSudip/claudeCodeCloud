@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% set static = true %}{% set home_url = "index.html" %}
+{% block body %}
+<main style="padding:24px;max-width:900px">
+  <h2 style="margin-top:0">Daily Digests</h2>
+  <div class="stats">
+    <div class="stat"><b>{{ stats.reports }}</b><span class="muted">reports</span></div>
+    <div class="stat"><b>{{ stats.raw_items }}</b><span class="muted">items ingested</span></div>
+    <div class="stat"><b>{{ stats.filtered_items }}</b><span class="muted">items evaluated</span></div>
+  </div>
+  <ul>
+  {% for r in reports %}<li><a href="{{ r.report_date }}-{{ r.id }}.html">{{ r.title }}</a> <span class="pill">{{ r.item_count }} items</span></li>{% else %}<li class="muted">No digests yet.</li>{% endfor %}
+  </ul>
+</main>
+{% endblock %}

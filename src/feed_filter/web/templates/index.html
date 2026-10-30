@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="layout">
+  <aside>
+    <h3 class="muted" style="margin-top:0">Past digests</h3>
+    <ul>
+      {% for r in reports %}<li><a href="/reports/{{ r.id }}">{{ r.report_date }}</a> <span class="pill">{{ r.item_count }}</span></li>{% else %}<li class="muted">None yet</li>{% endfor %}
+    </ul>
+  </aside>
+  <main>
+    <h2 style="margin-top:0">Overview</h2>
+    <div class="stats">
+      <div class="stat"><b>{{ stats.reports }}</b><span class="muted">reports</span></div>
+      <div class="stat"><b>{{ stats.raw_items }}</b><span class="muted">items ingested</span></div>
+      <div class="stat"><b>{{ stats.filtered_items }}</b><span class="muted">items evaluated</span></div>
+      <div class="stat"><b>{{ stats.profiles }}</b><span class="muted">profile versions</span></div>
+    </div>
+    {% if reports %}
+    <table>
+      <thead><tr><th>Date</th><th>Title</th><th>Items</th><th>Generated</th></tr></thead>
+      <tbody>
+      {% for r in reports %}
+        <tr><td>{{ r.report_date }}</td><td><a href="/reports/{{ r.id }}">{{ r.title }}</a></td><td>{{ r.item_count }}</td><td class="muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No digests yet. Run <code>python main.py --digest</code> to generate your first one.</p>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

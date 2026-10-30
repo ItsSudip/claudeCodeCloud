@@ -1,0 +1,25 @@
+# What The Feed Filter collects. Edit freely; no restart needed.
+
+[hackernews]
+min_points = 50      # Only stories with at least this many points in the last 24h
+limit = 50
+
+[reddit]
+subreddits = ["programming", "startups", "MachineLearning", "technology"]
+listing = "top"      # top | hot | new | rising
+timeframe = "day"    # hour | day | week | month | year | all (only for "top")
+limit = 25
+
+[rss]
+feeds = [
+  "https://blog.pragmaticengineer.com/rss/",
+  "https://www.anthropic.com/rss.xml",
+  "https://simonwillison.net/atom/everything/",
+]
+
+[x]
+# Handles without the @. Needs X_BEARER_TOKEN, X_NITTER_BASE_URL or X_AUTH_COOKIE in .env
+# to fetch live data; otherwise the bundled fixture is used when fallback is enabled.
+accounts = ["karpathy", "simonw", "paulg"]
+search_queries = []  # API v2 only, e.g. ["\"prompt caching\"", "postgres 18"]
+limit = 50

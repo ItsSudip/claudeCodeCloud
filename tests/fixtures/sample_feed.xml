@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Engineering Blog</title>
+    <link>https://example.com/blog</link>
+    <item>
+      <title>A practical primer on distributed tracing</title>
+      <link>https://example.com/blog/tracing?utm_source=rss</link>
+      <guid>https://example.com/blog/tracing</guid>
+      <author>sre@example.com (SRE Team)</author>
+      <pubDate>Wed, 29 Oct 2026 08:00:00 GMT</pubDate>
+      <description><![CDATA[<p>Sampling strategies &amp; <b>context propagation</b>.</p>]]></description>
+      <category>observability</category>
+    </item>
+    <item>
+      <title>Untitled entry should still parse</title>
+      <link>https://example.com/blog/second</link>
+      <pubDate>Tue, 28 Oct 2026 18:00:00 GMT</pubDate>
+      <description>Second post body.</description>
+    </item>
+  </channel>
+</rss>

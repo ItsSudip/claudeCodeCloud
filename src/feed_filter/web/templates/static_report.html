@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ report.title }} · The Feed Filter{% endblock %}
+{% set static = true %}{% set home_url = "index.html" %}
+{% block body %}
+<main style="padding:24px;max-width:900px">
+  <p class="muted" style="margin-top:0"><a href="index.html">← All digests</a></p>
+  <article>{{ body_html | safe }}</article>
+</main>
+{% endblock %}

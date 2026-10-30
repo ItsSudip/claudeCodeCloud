@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Local data & secrets
+.env
+data/*.db
+data/*.db-journal
+reports/*.md
+reports/html/
+!reports/.gitkeep
+!data/.gitkeep
