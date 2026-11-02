@@ -115,6 +115,7 @@ class Settings:
     instagram_access_token: str | None
     instagram_user_id: str | None
     instagram_session_cookie: str | None
+    instagram_graphql_doc_id: str | None
     facebook_access_token: str | None
     facebook_rssbridge_url: str | None
 
@@ -166,6 +167,7 @@ def load_settings(env_file: Path | None = None, **overrides: object) -> Settings
         instagram_access_token=os.getenv("INSTAGRAM_ACCESS_TOKEN") or None,
         instagram_user_id=os.getenv("INSTAGRAM_USER_ID") or None,
         instagram_session_cookie=os.getenv("INSTAGRAM_SESSION_COOKIE") or None,
+        instagram_graphql_doc_id=os.getenv("INSTAGRAM_GRAPHQL_DOC_ID") or None,
         facebook_access_token=os.getenv("FACEBOOK_ACCESS_TOKEN") or None,
         facebook_rssbridge_url=(os.getenv("FACEBOOK_RSSBRIDGE_URL") or "").rstrip("/") or None,
         dashboard_host=os.getenv("FEED_FILTER_DASHBOARD_HOST", "127.0.0.1"),

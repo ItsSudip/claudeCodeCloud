@@ -91,6 +91,7 @@ def _instagram(settings: Settings, client: httpx.Client) -> Provider | None:
         access_token=settings.instagram_access_token,
         user_id=settings.instagram_user_id,
         session_cookie=settings.instagram_session_cookie,
+        graphql_doc_id=settings.instagram_graphql_doc_id,
         http_client=client,
     )
 

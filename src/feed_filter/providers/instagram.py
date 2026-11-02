@@ -7,11 +7,13 @@ Instagram has no free read API for arbitrary accounts, so this provider layers t
    ``sources.toml`` it calls *Business Discovery*, which returns recent media of any public
    business/creator account. The special handle ``me`` fetches your own media.
    Docs: https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/business-discovery
-2. **Web profile scrape with your session cookie** - set ``INSTAGRAM_SESSION_COOKIE`` to the
-   ``sessionid=...`` cookie from a logged-in browser. Uses the same JSON endpoint the website
-   uses (``/api/v1/users/web_profile_info/``), sent with browser-like headers because the
-   endpoint answers non-browser clients with a "Page Not Found" HTML page. Instagram changes
-   this without notice and may rate-limit or log out the session; treat it as a plug-in point.
+2. **GraphQL with your session cookie** - set ``INSTAGRAM_SESSION_COOKIE`` to the cookie string
+   from a logged-in browser (``sessionid=...; csrftoken=...; ds_user_id=...``). Replays the
+   ``PolarisProfilePostsQuery`` request instagram.com itself makes when you open a profile.
+   The ``doc_id`` rotates with Instagram's web releases; override it with
+   ``INSTAGRAM_GRAPHQL_DOC_ID`` taken from DevTools ("Copy as cURL" on the graphql request).
+   The older ``/api/v1/users/web_profile_info/`` endpoint is tried afterwards in case it still
+   answers. Instagram changes both without notice; treat them as plug-in points.
 3. Nothing works -> the collector substitutes the bundled fixture when fallback is enabled.
 
 Reels and videos carry a duration where the API exposes one, so sessions can be timed precisely.
@@ -19,7 +21,9 @@ Reels and videos carry a duration where the API exposes one, so sessions can be 
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 
 import httpx
 
@@ -36,6 +40,21 @@ WEB_PROFILE_URLS = (
     "https://i.instagram.com/api/v1/users/web_profile_info/",
 )
 WEB_APP_ID = "936619743392459"  # public x-ig-app-id used by instagram.com itself
+GRAPHQL_URL = "https://www.instagram.com/graphql/query"
+GRAPHQL_FRIENDLY_NAME = "PolarisProfilePostsQuery"
+# Instagram rotates GraphQL doc ids with its web releases. Override with INSTAGRAM_GRAPHQL_DOC_ID
+# (copy it from a "Copy as cURL" of the profile request in your browser's DevTools).
+DEFAULT_GRAPHQL_DOC_ID = "9916845311755308"
+ASBD_ID = "129477"
+_LOGIN_PAGE_RE = re.compile(r'class="[^"]*not-logged-in')
+
+
+def _is_login_page(html: str) -> bool:
+    return bool(_LOGIN_PAGE_RE.search(html[:4000]))
+
+
+_DTSG_RE = re.compile(r'"DTSGInitialData",\[\],\{"token":"([^"]+)"')
+_LSD_RE = re.compile(r'"LSD",\[\],\{"token":"([^"]+)"')
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -56,11 +75,32 @@ def web_headers(session_cookie: str | None) -> dict[str, str]:
         "Cookie": cookie,
     }
     # Instagram expects the CSRF cookie echoed as a header when it is present.
-    for part in cookie.split(";"):
-        name, _, value = part.strip().partition("=")
-        if name.strip().lower() == "csrftoken" and value:
-            headers["x-csrftoken"] = value.strip()
+    csrf = parse_cookies(cookie).get("csrftoken")
+    if csrf:
+        headers["x-csrftoken"] = csrf
     return headers
+
+
+def parse_cookies(cookie: str | None) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for part in (cookie or "").split(";"):
+        name, _, value = part.strip().partition("=")
+        if name.strip() and value:
+            result[name.strip().lower()] = value.strip()
+    return result
+
+
+def _graphql_kind(node: dict) -> tuple[str, int | None]:
+    """Map a GraphQL media node to (content kind, duration seconds)."""
+    media_type = node.get("media_type")  # 1 image, 2 video, 8 carousel
+    product = (node.get("product_type") or "").lower()
+    duration = node.get("video_duration")
+    seconds = int(round(float(duration))) if duration else None
+    if media_type == 2 or product == "clips" or node.get("video_versions"):
+        if seconds and seconds > 180:
+            return "long_video", seconds
+        return "short_video", seconds
+    return "image", None
 
 
 MEDIA_FIELDS = (
@@ -96,6 +136,7 @@ class InstagramProvider(Provider):
         access_token: str | None = None,
         user_id: str | None = None,
         session_cookie: str | None = None,
+        graphql_doc_id: str | None = None,
         http_client: httpx.Client | None = None,
         timeout: float = 20.0,
         user_agent: str = "feed-filter/0.1",
@@ -105,6 +146,7 @@ class InstagramProvider(Provider):
         self.access_token = access_token
         self.user_id = user_id
         self.session_cookie = session_cookie
+        self.graphql_doc_id = graphql_doc_id or DEFAULT_GRAPHQL_DOC_ID
         self._client = http_client or httpx.Client(
             timeout=timeout, headers={"User-Agent": user_agent}, follow_redirects=True
         )
@@ -175,6 +217,162 @@ class InstagramProvider(Provider):
         return items
 
     # ------------------------------------------------------------------ strategy 2: web scrape
+    # ------------------------------------------------------------------ strategy 2: GraphQL (web)
+    def _page_tokens(self, handle: str, headers: dict[str, str]) -> dict[str, str]:
+        """Load the profile page to pick up the per-session tokens the GraphQL call wants."""
+        tokens: dict[str, str] = {}
+        try:
+            response = self._client.get(
+                f"https://www.instagram.com/{handle}/",
+                headers={**headers, "Accept": "text/html,*/*"},
+            )
+        except httpx.HTTPError as exc:
+            log.debug("instagram: profile page for @%s failed: %s", handle, exc)
+            return tokens
+        html = response.text
+        if _is_login_page(html):
+            raise ProviderError(
+                f"@{handle}: Instagram returned a login page; INSTAGRAM_SESSION_COOKIE "
+                "is missing or expired"
+            )
+        for key, pattern in (("fb_dtsg", _DTSG_RE), ("lsd", _LSD_RE)):
+            match = pattern.search(html)
+            if match:
+                tokens[key] = match.group(1)
+        return tokens
+
+    def _graphql_posts(self, handle: str, headers: dict[str, str]) -> list[dict]:
+        cookies = parse_cookies(headers.get("Cookie"))
+        tokens = self._page_tokens(handle, headers)
+        lsd = tokens.get("lsd") or "AVqbxe3J_YA"
+        variables = {
+            "data": {
+                "count": min(self.limit, 33),
+                "include_reel_media_seen_timestamp": True,
+                "include_relationship_info": True,
+                "latest_besties_reel_media": True,
+                "latest_reel_media": True,
+            },
+            "username": handle,
+            "__relay_internal__pv__PolarisIsLoggedInrelayprovider": bool(cookies.get("sessionid")),
+            "__relay_internal__pv__PolarisShareSheetV3relayprovider": True,
+        }
+        form = {
+            "av": cookies.get("ds_user_id", "0"),
+            "__d": "www",
+            "__user": "0",
+            "__a": "1",
+            "__req": "1",
+            "__comet_req": "7",
+            "lsd": lsd,
+            "jazoest": "2" + str(sum(ord(c) for c in lsd)),
+            "fb_api_caller_class": "RelayModern",
+            "fb_api_req_friendly_name": GRAPHQL_FRIENDLY_NAME,
+            "server_timestamps": "true",
+            "variables": json.dumps(variables, separators=(",", ":")),
+            "doc_id": self.graphql_doc_id,
+        }
+        if tokens.get("fb_dtsg"):
+            form["fb_dtsg"] = tokens["fb_dtsg"]
+        post_headers = {
+            **headers,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "x-fb-lsd": lsd,
+            "x-asbd-id": ASBD_ID,
+            "x-fb-friendly-name": GRAPHQL_FRIENDLY_NAME,
+            "Origin": "https://www.instagram.com",
+            "Referer": f"https://www.instagram.com/{handle}/",
+        }
+        response = self._client.post(GRAPHQL_URL, data=form, headers=post_headers)
+        if response.status_code in (401, 403, 429):
+            raise ProviderError(
+                f"Instagram GraphQL refused @{handle} (HTTP {response.status_code}); "
+                "refresh INSTAGRAM_SESSION_COOKIE"
+            )
+        if "json" not in response.headers.get("content-type", ""):
+            raise ProviderError(
+                f"@{handle}: GraphQL answered with {response.status_code} non-JSON "
+                "(doc id stale? set INSTAGRAM_GRAPHQL_DOC_ID from DevTools)"
+            )
+        payload = response.json()
+        if payload.get("errors"):
+            raise ProviderError(f"@{handle}: GraphQL errors: {str(payload['errors'])[:200]}")
+        data = payload.get("data") or {}
+        connection = data.get("xdt_api__v1__feed__user_timeline_graphql_connection")
+        if connection is None:
+            raise ProviderError(
+                f"@{handle}: unexpected GraphQL shape (keys: {list(data)[:5]}); "
+                "set INSTAGRAM_GRAPHQL_DOC_ID from DevTools"
+            )
+        return [edge.get("node", {}) for edge in connection.get("edges", [])]
+
+    def _graphql_items(self, nodes: list[dict], handle: str) -> list[CollectedItem]:
+        items: list[CollectedItem] = []
+        for node in nodes:
+            code = node.get("code")
+            pk = node.get("pk") or node.get("id")
+            if not code or not pk:
+                continue
+            caption = (
+                (node.get("caption") or {}).get("text")
+                if isinstance(node.get("caption"), dict)
+                else None
+            )
+            username = (node.get("user") or node.get("owner") or {}).get("username") or handle
+            kind, seconds = _graphql_kind(node)
+            path = (
+                "reel"
+                if kind.endswith("video") and (node.get("product_type") or "").lower() == "clips"
+                else "p"
+            )
+            video = (node.get("video_versions") or [{}])[0].get("url")
+            image = ((node.get("image_versions2") or {}).get("candidates") or [{}])[0].get("url")
+            items.append(
+                CollectedItem(
+                    provider=self.name,
+                    external_id=str(pk),
+                    title=_title_from_caption(caption, f"@{username} {kind.replace('_', ' ')}"),
+                    url=f"https://www.instagram.com/{path}/{code}/",
+                    author=f"@{username}",
+                    body=caption,
+                    source_name="Instagram",
+                    score=node.get("like_count"),
+                    comments=node.get("comment_count"),
+                    published_at=parse_timestamp(node.get("taken_at")),
+                    media_type=kind,
+                    media_url=video or image,
+                    duration_seconds=seconds,
+                    extra={"strategy": "graphql", "thumbnail": image},
+                )
+            )
+        return items
+
+    def _collect_graphql(self) -> list[CollectedItem]:
+        headers = web_headers(self.session_cookie)
+        items: list[CollectedItem] = []
+        errors: list[str] = []
+        for handle in self.accounts:
+            if handle.lower() == "me":
+                continue
+            try:
+                nodes = self._graphql_posts(handle, headers)
+            except httpx.HTTPError as exc:
+                errors.append(f"@{handle}: {exc}")
+                continue
+            except ValueError as exc:
+                errors.append(f"@{handle}: invalid JSON from GraphQL: {exc}")
+                continue
+            except ProviderError as exc:
+                if "refresh INSTAGRAM_SESSION_COOKIE" in str(exc) or "login page" in str(exc):
+                    raise
+                errors.append(str(exc))
+                continue
+            items.extend(self._graphql_items(nodes, handle))
+        if not items and errors:
+            raise ProviderError("; ".join(errors))
+        return items
+
+    # ------------------------------------------------------------- strategy 3: web_profile_info
     def _fetch_web_profile(self, handle: str, headers: dict[str, str]) -> dict:
         """Try each web host; return the user object or raise ProviderError."""
         last_error = "no response"
@@ -190,8 +388,7 @@ class InstagramProvider(Provider):
                 raise ProviderError(f"@{handle}: account not found")
             if "json" not in content_type:
                 # HTML back: either a login wall or the host refusing non-browser traffic.
-                body = response.text
-                if "logged-in" in body or "not-logged-in" not in body:
+                if not _is_login_page(response.text):
                     last_error = f"HTTP {response.status_code} HTML from {url} (endpoint blocked)"
                 else:
                     raise ProviderError(
@@ -273,6 +470,7 @@ class InstagramProvider(Provider):
         if self.access_token:
             strategies.append(("graph_api", self._collect_graph))
         if self.session_cookie:
+            strategies.append(("graphql", self._collect_graphql))
             strategies.append(("web_profile", self._collect_web))
         if not strategies:
             raise ProviderError(
