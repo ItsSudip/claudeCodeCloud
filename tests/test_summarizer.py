@@ -163,6 +163,10 @@ class TestSummarizerService:
         assert report.id is not None
         assert report.item_count == 1
         assert "Great read" in report.markdown and "Old read" not in report.markdown
-        assert report.stats["themes"] == {"Tech Breakthroughs": 1, "Business Insights": 0}
+        assert report.stats["themes"] == {
+            "Tech Breakthroughs": 1,
+            "Business Insights": 0,
+            "Good Vibes": 0,
+        }
         assert (tmp_path / "reports" / "2026-10-30.md").read_text() == report.markdown
         assert repo.latest_report().id == report.id

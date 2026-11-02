@@ -4,6 +4,8 @@ python main.py --digest            # full pipeline: collect -> filter -> summari
 python main.py --collect           # only ingest new items
 python main.py --filter            # only evaluate un-scored items with the LLM
 python main.py --summarize         # only build a digest from already-scored items
+python main.py --session --mood happy --minutes 10   # mood-matched, time-boxed playlist
+python main.py --digest --session --mood curious     # refresh, then build a session
 python main.py --serve             # start the local dashboard
 python main.py --list-reports      # list stored digests
 python main.py --show-report 3     # print one digest as markdown
@@ -43,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
     actions.add_argument(
         "--summarize", action="store_true", help="build a digest from scored items"
     )
+    actions.add_argument(
+        "--session",
+        action="store_true",
+        help="build a mood-matched, time-boxed session from scored items (see --mood/--minutes)",
+    )
     actions.add_argument("--serve", action="store_true", help="start the local dashboard")
     actions.add_argument("--list-reports", action="store_true", help="list stored digests")
     actions.add_argument("--show-report", type=int, metavar="ID", help="print a digest as markdown")
@@ -52,6 +59,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     options = parser.add_argument_group("options")
+    options.add_argument(
+        "--mood",
+        default="any",
+        help="how you feel right now: happy, sad, tired, curious, focused, bored, stressed, any",
+    )
+    options.add_argument(
+        "--minutes",
+        type=int,
+        default=10,
+        help="how much time you have for the session (5-20 recommended, default 10)",
+    )
+    options.add_argument(
+        "--allow-repeats",
+        action="store_true",
+        help="let a session include items already served in a recent session",
+    )
     options.add_argument(
         "--mock", action="store_true", help="use bundled fixture data instead of live providers"
     )
@@ -105,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         args.filter,
         args.summarize,
         args.serve,
+        args.session,
         args.list_reports,
         args.show_report is not None,
         args.export_html,
@@ -142,7 +166,11 @@ def main(argv: list[str] | None = None) -> int:
                 print("No reports yet. Run: python main.py --digest")
             for r in reports:
                 created = r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "?"
-                print(f"#{r.id:<4} {r.report_date}  {r.item_count:>3} items  generated {created}")
+                label = f"session/{r.mood}/{r.target_minutes}m" if r.kind == "session" else "digest"
+                print(
+                    f"#{r.id:<4} {r.report_date}  {label:<22} {r.item_count:>3} items  "
+                    f"generated {created}"
+                )
         return 0
 
     if args.show_report is not None:
@@ -181,26 +209,36 @@ def main(argv: list[str] | None = None) -> int:
                 for failure in result.collection.failures:
                     note = " (mock fallback used)" if failure.used_fallback else ""
                     print(f"  ! {failure.provider}: {failure.error}{note}")
-            return 0
-        if args.collect:
+        elif args.collect:
             result = pipeline.collect()
             print(f"Collected {result.inserted} new items ({result.duplicates} duplicates skipped)")
             for failure in result.failures:
                 print(f"  ! {failure.provider}: {failure.error}")
-            return 0
-        if args.filter:
+        elif args.filter:
             stats = pipeline.filter()
             print(
                 f"Evaluated {stats.evaluated} items; {stats.kept} cleared the threshold "
                 f"(clickbait {stats.clickbait}, outrage {stats.outrage}, "
                 f"repetitive {stats.repetitive})"
             )
-            return 0
-        if args.summarize:
+        elif args.summarize:
             report = pipeline.summarize(report_date=args.date)
             print(f"Digest #{report.id} for {report.report_date}: {report.item_count} items")
             print(f"Saved to {settings.reports_dir / (report.report_date + '.md')}")
-            return 0
+
+        if args.session:
+            try:
+                report = pipeline.build_session(
+                    args.mood, args.minutes, allow_repeats=args.allow_repeats
+                )
+            except KeyError as exc:
+                print(str(exc.args[0]), file=sys.stderr)
+                return 2
+            print()
+            print(report.markdown)
+            print(
+                f"Stored as report #{report.id}; view it with --show-report {report.id} or --serve"
+            )
     return 0
 
 

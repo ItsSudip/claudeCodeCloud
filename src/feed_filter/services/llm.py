@@ -17,6 +17,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from feed_filter.services.moods import (
+    CONTENT_KINDS,
+    CONTENT_MOODS,
+    estimate_minutes,
+    normalize_kind,
+    normalize_moods,
+)
 from feed_filter.services.profile import InterestProfileSpec
 
 log = logging.getLogger(__name__)
@@ -35,6 +42,8 @@ class ItemForEvaluation:
     body: str | None = None
     score: int | None = None
     comments: int | None = None
+    media_type: str | None = None  # article | post | short_video | long_video | image | ...
+    duration_seconds: int | None = None
 
     def to_prompt_dict(self, body_limit: int = 1200) -> dict[str, Any]:
         data: dict[str, Any] = {"ref": self.ref, "title": self.title, "source": self.source}
@@ -42,6 +51,10 @@ class ItemForEvaluation:
             data["author"] = self.author
         if self.url:
             data["url"] = self.url
+        if self.media_type:
+            data["media_type"] = self.media_type
+        if self.duration_seconds:
+            data["duration_seconds"] = self.duration_seconds
         if self.score is not None:
             data["engagement"] = {"score": self.score, "comments": self.comments}
         if self.body:
@@ -61,10 +74,19 @@ class Evaluation:
     is_repetitive: bool = False
     save_for_later: bool = False
     reasoning: str = ""
+    moods: list[str] = field(default_factory=list)
+    content_kind: str = "other"
+    estimated_minutes: float = 0.0  # 0 means "unknown, derive it"
 
     def __post_init__(self) -> None:
         self.relevance_score = int(max(1, min(10, round(self.relevance_score))))
         self.takeaways = [t.strip() for t in self.takeaways if t and t.strip()][:5]
+        self.moods = normalize_moods(self.moods)
+        self.content_kind = normalize_kind(self.content_kind)
+        try:
+            self.estimated_minutes = max(0.0, float(self.estimated_minutes))
+        except (TypeError, ValueError):
+            self.estimated_minutes = 0.0
 
 
 class LLMClient(Protocol):
@@ -103,6 +125,17 @@ all-caps indignation) rather than to inform.
 provided, or a duplicate of another item in this batch (keep the single best version unflagged).
 - save_for_later: long-form or reference material worth a focused read rather than a skim.
 
+Mood and time (used to build sessions that match how the reader feels right now):
+- moods: one to three tags from: feel_good (warm, wholesome, uplifting), funny, inspiring \
+(effort paying off, craft, achievement), calm (slow, soothing), curious (explainers, learning), \
+thought_provoking (ideas that need chewing on), energizing (launches, hype, momentum), \
+practical (how-tos, tools you can use today), intense (heavy, sad, scary, conflict, stress). \
+Tag honestly: a layoff post-mortem is "intense" even if it is also "practical".
+- content_kind: article, post, thread, short_video (under 3 minutes), long_video, image, \
+podcast, paper or other.
+- estimated_minutes: how long an attentive reader needs to consume it - use the media duration \
+if given, otherwise reading time at ~230 words per minute, or 0.5 for an image.
+
 Write summaries in plain, specific language: what happened and why it matters to this reader. \
 Takeaways are concrete facts, numbers or decisions, not restatements of the title. Do not \
 invent details that are not in the item. Use the exact theme names from the profile."""
@@ -125,6 +158,12 @@ EVALUATION_SCHEMA: dict[str, Any] = {
                     "is_repetitive": {"type": "boolean"},
                     "save_for_later": {"type": "boolean"},
                     "reasoning": {"type": "string"},
+                    "moods": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": list(CONTENT_MOODS)},
+                    },
+                    "content_kind": {"type": "string", "enum": list(CONTENT_KINDS)},
+                    "estimated_minutes": {"type": "number", "minimum": 0},
                 },
                 "required": [
                     "ref",
@@ -137,6 +176,9 @@ EVALUATION_SCHEMA: dict[str, Any] = {
                     "is_repetitive",
                     "save_for_later",
                     "reasoning",
+                    "moods",
+                    "content_kind",
+                    "estimated_minutes",
                 ],
                 "additionalProperties": False,
             },
@@ -177,6 +219,9 @@ def parse_evaluations(raw: dict[str, Any], expected_refs: list[str]) -> list[Eva
                 is_repetitive=bool(entry.get("is_repetitive", False)),
                 save_for_later=bool(entry.get("save_for_later", False)),
                 reasoning=str(entry.get("reasoning") or ""),
+                moods=[str(m) for m in entry.get("moods", []) or []],
+                content_kind=str(entry.get("content_kind") or "other"),
+                estimated_minutes=entry.get("estimated_minutes") or 0.0,
             )
         except (KeyError, TypeError, ValueError) as exc:
             log.warning("Skipping malformed evaluation %r: %s", entry, exc)
@@ -339,6 +384,53 @@ _CLICKBAIT_RE = re.compile(
     r"this one trick|\bshocking\b|\bmind[- ]blowing\b|\bjaw[- ]dropping\b",
     re.IGNORECASE,
 )
+_MOOD_HINTS: dict[str, re.Pattern[str]] = {
+    "feel_good": re.compile(
+        r"\b(wholesome|heartwarming|adorable|rescued?|reunited|kindness|smile|grandma|puppy|"
+        r"kitten|community came together|surprise[ds]? (his|her|their)|thank(s|ed) )",
+        re.IGNORECASE,
+    ),
+    "funny": re.compile(r"\b(funny|hilarious|lol|meme|comedy|joke|parody|satire)\b", re.IGNORECASE),
+    "inspiring": re.compile(
+        r"\b(inspir|journey|first time|achiev|went from|overcame|built .* from scratch|marathon)",
+        re.IGNORECASE,
+    ),
+    "calm": re.compile(
+        r"\b(calm|relax|slow|quiet|nature|sunrise|garden|meditat|ambient|cozy)", re.IGNORECASE
+    ),
+    "curious": re.compile(
+        r"\b(how (it|they|we) work|explain|why do|science|study|paper|research|"
+        r"primer|deep dive|benchmark)",
+        re.IGNORECASE,
+    ),
+    "thought_provoking": re.compile(
+        r"\b(essay|argu|debate|rethink|the case (for|against)|"
+        r"philosoph|letter)",
+        re.IGNORECASE,
+    ),
+    "energizing": re.compile(
+        r"\b(launch|released?|announc|ship(ped|s)|record|hype|win|"
+        r"open-?sourced?)",
+        re.IGNORECASE,
+    ),
+    "practical": re.compile(
+        r"\b(how to|guide|tutorial|tips?|tool|playbook|checklist|cut .* by|"
+        r"reduced? .* by|primer)",
+        re.IGNORECASE,
+    ),
+    "intense": re.compile(
+        r"\b(layoff|lawsuit|war|death|died|crisis|collapse|scandal|disgusting|"
+        r"outrage|rant|fired|bankrupt)",
+        re.IGNORECASE,
+    ),
+}
+
+
+def heuristic_moods(text: str) -> list[str]:
+    found = [mood for mood, pattern in _MOOD_HINTS.items() if pattern.search(text)]
+    return found[:3] or ["curious"]
+
+
 _OUTRAGE_RE = re.compile(
     r"\bdisgusting\b|\bidiots?\b|\boutrage\b|\bfight me\b|\bhot take\b|\brant\b|\bat it again\b|"
     r"\bfurious\b|\bdestroys?\b|\bowned\b|\bslams?\b|\bwoke\b|\bdisgrace",
@@ -387,6 +479,10 @@ class MockLLMClient:
             body = (item.body or "").strip()
             summary = body[:200] if body else item.title
             takeaways = [s.strip() for s in re.split(r"(?<=[.!?])\s+", body) if s.strip()][:3]
+            kind = item.media_type or ("article" if len(body) > 400 else "post")
+            moods = heuristic_moods(text)
+            if outrage and "intense" not in moods:
+                moods = (moods + ["intense"])[-3:]
             results.append(
                 Evaluation(
                     ref=item.ref,
@@ -399,6 +495,11 @@ class MockLLMClient:
                     is_repetitive=repetitive,
                     save_for_later=len(body) > 400 or "thread" in item.title.lower(),
                     reasoning=f"mock: {best_hits} keyword hit(s) for {best_theme}",
+                    moods=moods,
+                    content_kind=kind,
+                    estimated_minutes=estimate_minutes(
+                        kind=kind, body=body, duration_seconds=item.duration_seconds
+                    ),
                 )
             )
         return results

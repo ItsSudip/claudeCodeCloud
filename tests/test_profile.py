@@ -27,6 +27,7 @@ class TestParseProfile:
         assert spec.settings.max_items_total == 5
         assert spec.settings.digest_days == 7
         assert spec.settings.clickbait_penalty == 10  # default kept
+        assert spec.settings.session_min_score == 4.0
 
     def test_defaults_when_empty(self):
         spec = parse_profile("# Nothing here\n")

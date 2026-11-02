@@ -12,7 +12,9 @@ import httpx
 
 from feed_filter.config import Settings
 from feed_filter.providers.base import CollectedItem, Provider, ProviderError
+from feed_filter.providers.facebook import FacebookProvider
 from feed_filter.providers.hackernews import HackerNewsProvider
+from feed_filter.providers.instagram import InstagramProvider
 from feed_filter.providers.mock import FIXTURES_DIR, MockProvider
 from feed_filter.providers.reddit import RedditProvider
 from feed_filter.providers.rss import RSSProvider
@@ -20,7 +22,9 @@ from feed_filter.providers.x import XProvider
 
 __all__ = [
     "CollectedItem",
+    "FacebookProvider",
     "HackerNewsProvider",
+    "InstagramProvider",
     "MockProvider",
     "Provider",
     "ProviderError",
@@ -77,11 +81,40 @@ def _x(settings: Settings, client: httpx.Client) -> Provider | None:
     )
 
 
+def _instagram(settings: Settings, client: httpx.Client) -> Provider | None:
+    src = settings.sources
+    if not src.instagram_accounts:
+        return None
+    return InstagramProvider(
+        src.instagram_accounts,
+        limit=src.instagram_limit,
+        access_token=settings.instagram_access_token,
+        user_id=settings.instagram_user_id,
+        session_cookie=settings.instagram_session_cookie,
+        http_client=client,
+    )
+
+
+def _facebook(settings: Settings, client: httpx.Client) -> Provider | None:
+    src = settings.sources
+    if not src.facebook_pages:
+        return None
+    return FacebookProvider(
+        src.facebook_pages,
+        limit=src.facebook_limit,
+        access_token=settings.facebook_access_token,
+        rssbridge_url=settings.facebook_rssbridge_url,
+        http_client=client,
+    )
+
+
 REGISTRY: dict[str, ProviderFactory] = {
     "hackernews": _hn,
     "reddit": _reddit,
     "rss": _rss,
     "x": _x,
+    "instagram": _instagram,
+    "facebook": _facebook,
 }
 
 

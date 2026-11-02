@@ -58,6 +58,38 @@ class TestDashboard:
         assert empty.get("/api/reports/latest").status_code == 404
 
 
+class TestSessions:
+    def test_index_has_mood_form(self, client):
+        html = client.get("/").text
+        assert 'action="/sessions"' in html
+        assert '<option value="happy"' in html
+
+    def test_form_builds_session_and_redirects(self, client):
+        response = client.post(
+            "/sessions", data={"mood": "happy", "minutes": "10"}, follow_redirects=False
+        )
+        assert response.status_code == 303
+        location = response.headers["location"]
+        page = client.get(location).text
+        assert "session · happy" in page
+        assert "<h1>10-minute session · happy</h1>" in page
+
+    def test_api_builds_session(self, client):
+        response = client.post("/api/sessions", json={"mood": "curious", "minutes": 8})
+        assert response.status_code == 201
+        body = response.json()
+        assert body["kind"] == "session" and body["mood"] == "curious"
+        assert body["target_minutes"] == 8
+        assert body["markdown"].startswith("# 8-minute session · curious")
+        listed = client.get("/api/reports", params={"kind": "session"}).json()
+        assert [r["id"] for r in listed] == [body["id"]]
+        assert client.get("/api/moods").json()[0]["name"] == "any"
+
+    def test_unknown_mood_is_400(self, client):
+        assert client.post("/api/sessions", json={"mood": "furious"}).status_code == 400
+        assert client.post("/api/sessions", json={"mood": "any", "minutes": 0}).status_code == 422
+
+
 class TestStaticExport:
     def test_export(self, settings, session_factory, tmp_path):
         with session_factory() as session:

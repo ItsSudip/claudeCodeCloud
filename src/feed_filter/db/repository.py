@@ -80,6 +80,9 @@ class Repository:
                     source_name=item.source_name,
                     score=item.score,
                     comments=item.comments,
+                    media_type=item.media_type,
+                    media_url=item.media_url,
+                    duration_seconds=item.duration_seconds,
                     published_at=item.published_at,
                     extra=item.extra or None,
                 )
@@ -185,17 +188,28 @@ class Repository:
         self.session.flush()
         return report
 
-    def list_reports(self, limit: int = 50) -> list[Report]:
-        stmt = select(Report).order_by(Report.created_at.desc(), Report.id.desc()).limit(limit)
-        return list(self.session.scalars(stmt))
+    def list_reports(self, limit: int = 50, *, kind: str | None = None) -> list[Report]:
+        stmt = select(Report).order_by(Report.created_at.desc(), Report.id.desc())
+        if kind:
+            stmt = stmt.where(Report.kind == kind)
+        return list(self.session.scalars(stmt.limit(limit)))
+
+    def session_item_ids(self, *, since: datetime) -> set[int]:
+        """Raw item ids already served in a session since ``since`` (so sessions stay fresh)."""
+        stmt = select(Report.stats).where(Report.kind == "session", Report.created_at >= since)
+        ids: set[int] = set()
+        for stats in self.session.scalars(stmt):
+            ids.update(int(i) for i in (stats or {}).get("item_ids", []))
+        return ids
 
     def get_report(self, report_id: int) -> Report | None:
         return self.session.get(Report, report_id)
 
-    def latest_report(self) -> Report | None:
-        return self.session.scalar(
-            select(Report).order_by(Report.created_at.desc(), Report.id.desc()).limit(1)
-        )
+    def latest_report(self, *, kind: str | None = None) -> Report | None:
+        stmt = select(Report).order_by(Report.created_at.desc(), Report.id.desc())
+        if kind:
+            stmt = stmt.where(Report.kind == kind)
+        return self.session.scalar(stmt.limit(1))
 
     def stats(self) -> dict[str, int]:
         return {

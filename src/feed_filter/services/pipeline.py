@@ -16,6 +16,7 @@ from feed_filter.services.collector import CollectionResult, Collector
 from feed_filter.services.filter_engine import FilterEngine, FilterStats
 from feed_filter.services.llm import LLMClient, build_llm_client
 from feed_filter.services.profile import InterestProfileSpec, load_profile
+from feed_filter.services.sessions import SessionBuilder
 from feed_filter.services.summarizer import Summarizer
 
 log = logging.getLogger(__name__)
@@ -78,6 +79,10 @@ class Pipeline:
             reports_dir=self.settings.reports_dir,
         )
         return summarizer.build(report_date=report_date, stats=stats)
+
+    def build_session(self, mood: str, minutes: int, *, allow_repeats: bool = False) -> Report:
+        builder = SessionBuilder(self.repo, self.profile, profile_id=self.profile_row.id)
+        return builder.build(mood, minutes, allow_repeats=allow_repeats)
 
     def run(self, *, report_date: date | None = None) -> PipelineResult:
         result = PipelineResult()

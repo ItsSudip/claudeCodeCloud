@@ -24,6 +24,11 @@ developer-tool and infrastructure businesses.
 keywords: devtools, cli, docker, ci, build, testing, framework, library, sdk, api, open-sourced, github
 New tools and workflows that would save my team real time this quarter.
 
+### Good Vibes (weight: 0.7)
+keywords: wholesome, heartwarming, rescue, kindness, funny, comedy, craft, woodworking, nature, sunrise, community, volunteers
+Feel-good, funny and calming posts (mostly Instagram and Facebook) for when I'm not in work
+mode. These rarely make the work digest but they are what a "happy" or "tired" session is for.
+
 ### Saved for Later (weight: 0.6)
 Long reads, primers and reference material worth a focused sitting rather than a skim.
 
@@ -34,6 +39,13 @@ Long reads, primers and reference material worth a focused sitting rather than a
 - keyboard, desk and productivity-gear recommendations
 - tabs vs spaces style flame wars
 
+## Moods
+# Optional overrides for `--mood`. Content moods: feel_good, funny, inspiring, calm, curious,
+# thought_provoking, energizing, practical, intense. Defaults exist for happy, sad, tired,
+# curious, focused, bored, stressed and any; add your own or tweak one, e.g.:
+happy: feel_good, funny, inspiring, energizing | exclude: intense
+commute: practical, curious, funny | exclude: intense
+
 ## Settings
 min_score: 6
 max_items_per_theme: 5
@@ -43,4 +55,5 @@ clickbait_penalty: 10
 outrage_penalty: 10
 repetitive_penalty: 10
 save_for_later_min_score: 5
+session_min_score: 4
 digest_days: 1

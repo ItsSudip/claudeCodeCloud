@@ -47,6 +47,10 @@ class SourcesConfig:
     x_accounts: list[str] = field(default_factory=list)
     x_search_queries: list[str] = field(default_factory=list)
     x_limit: int = 50
+    instagram_accounts: list[str] = field(default_factory=list)
+    instagram_limit: int = 20
+    facebook_pages: list[str] = field(default_factory=list)
+    facebook_limit: int = 20
 
     @classmethod
     def from_file(cls, path: Path) -> SourcesConfig:
@@ -58,6 +62,8 @@ class SourcesConfig:
         reddit = data.get("reddit", {})
         hn = data.get("hackernews", {})
         x = data.get("x", {})
+        instagram = data.get("instagram", {})
+        facebook = data.get("facebook", {})
         return cls(
             rss_feeds=list(rss.get("feeds", [])),
             subreddits=list(reddit.get("subreddits", [])),
@@ -69,6 +75,10 @@ class SourcesConfig:
             x_accounts=list(x.get("accounts", [])),
             x_search_queries=list(x.get("search_queries", [])),
             x_limit=int(x.get("limit", 50)),
+            instagram_accounts=list(instagram.get("accounts", [])),
+            instagram_limit=int(instagram.get("limit", 20)),
+            facebook_pages=list(facebook.get("pages", [])),
+            facebook_limit=int(facebook.get("limit", 20)),
         )
 
 
@@ -102,6 +112,11 @@ class Settings:
     x_bearer_token: str | None
     x_auth_cookie: str | None
     x_nitter_base_url: str | None
+    instagram_access_token: str | None
+    instagram_user_id: str | None
+    instagram_session_cookie: str | None
+    facebook_access_token: str | None
+    facebook_rssbridge_url: str | None
 
     # Dashboard
     dashboard_host: str
@@ -131,7 +146,9 @@ def load_settings(env_file: Path | None = None, **overrides: object) -> Settings
         llm_max_items=_env_int("FEED_FILTER_LLM_MAX_ITEMS", 200),
         enabled_providers=tuple(
             p.strip().lower()
-            for p in os.getenv("FEED_FILTER_PROVIDERS", "hackernews,reddit,rss,x").split(",")
+            for p in os.getenv(
+                "FEED_FILTER_PROVIDERS", "hackernews,reddit,rss,x,instagram,facebook"
+            ).split(",")
             if p.strip()
         ),
         allow_mock_fallback=_env_bool("FEED_FILTER_ALLOW_MOCK_FALLBACK", True),
@@ -146,6 +163,11 @@ def load_settings(env_file: Path | None = None, **overrides: object) -> Settings
         x_bearer_token=os.getenv("X_BEARER_TOKEN") or None,
         x_auth_cookie=os.getenv("X_AUTH_COOKIE") or None,
         x_nitter_base_url=(os.getenv("X_NITTER_BASE_URL") or "").rstrip("/") or None,
+        instagram_access_token=os.getenv("INSTAGRAM_ACCESS_TOKEN") or None,
+        instagram_user_id=os.getenv("INSTAGRAM_USER_ID") or None,
+        instagram_session_cookie=os.getenv("INSTAGRAM_SESSION_COOKIE") or None,
+        facebook_access_token=os.getenv("FACEBOOK_ACCESS_TOKEN") or None,
+        facebook_rssbridge_url=(os.getenv("FACEBOOK_RSSBRIDGE_URL") or "").rstrip("/") or None,
         dashboard_host=os.getenv("FEED_FILTER_DASHBOARD_HOST", "127.0.0.1"),
         dashboard_port=_env_int("FEED_FILTER_DASHBOARD_PORT", 8000),
     )

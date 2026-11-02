@@ -30,6 +30,10 @@ Model releases, database internals, systems work.
 keywords: startup, arr, pricing, growth, capex, margins
 Lessons about building companies.
 
+### Good Vibes (weight: 0.7)
+keywords: wholesome, heartwarming, rescue, puppy, kindness, funny, comedy, craft, nature
+Feel-good, funny and calming things worth a smile; what I want when I'm not in work mode.
+
 ## Avoid
 - keyboard recommendations
 - tabs vs spaces
@@ -74,7 +78,9 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     sources_path.write_text(
         '[rss]\nfeeds = ["https://example.com/feed.xml"]\n'
         '[reddit]\nsubreddits = ["programming"]\n'
-        '[x]\naccounts = ["someone"]\n',
+        '[x]\naccounts = ["someone"]\n'
+        '[instagram]\naccounts = ["dodo"]\n'
+        '[facebook]\npages = ["citylibrary"]\n',
         encoding="utf-8",
     )
     for var in (

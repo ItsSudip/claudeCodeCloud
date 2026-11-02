@@ -114,6 +114,10 @@ def _render_item(item: FilteredItem) -> list[str]:
     engagement = _fmt_engagement(item)
     if engagement:
         meta.append(engagement)
+    if item.estimated_minutes:
+        meta.append(f"~{item.estimated_minutes:g} min")
+    if item.moods:
+        meta.append(", ".join(m.replace("_", " ") for m in item.moods))
     meta.append(f"relevance {item.relevance_score}/10 · score {item.final_score:g}")
     lines = [title_line, " · ".join(meta), ""]
     if item.summary:

@@ -23,3 +23,15 @@ feeds = [
 accounts = ["karpathy", "simonw", "paulg"]
 search_queries = []  # API v2 only, e.g. ["\"prompt caching\"", "postgres 18"]
 limit = 50
+
+[instagram]
+# Handles without the @. "me" means your own professional account (Graph API only).
+# Needs INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_USER_ID or INSTAGRAM_SESSION_COOKIE in .env;
+# otherwise the bundled fixture is used when fallback is enabled.
+accounts = ["natgeo", "goodnews_movement", "engineering_explained"]
+limit = 20
+
+[facebook]
+# Page usernames or numeric ids. Needs FACEBOOK_ACCESS_TOKEN or FACEBOOK_RSSBRIDGE_URL.
+pages = ["citylibrary", "devcomedy"]
+limit = 20

@@ -23,6 +23,7 @@ from feed_filter.db.models import FilteredItem, RawItem
 from feed_filter.db.repository import Repository
 from feed_filter.providers.base import normalize_title
 from feed_filter.services.llm import Evaluation, ItemForEvaluation, LLMClient, engagement_signal
+from feed_filter.services.moods import estimate_minutes
 from feed_filter.services.profile import InterestProfileSpec
 
 log = logging.getLogger(__name__)
@@ -97,6 +98,8 @@ def to_eval_item(item: RawItem) -> ItemForEvaluation:
         body=item.body,
         score=item.score,
         comments=item.comments,
+        media_type=item.media_type,
+        duration_seconds=item.duration_seconds,
     )
 
 
@@ -170,6 +173,14 @@ class FilterEngine:
                     save_for_later=evaluation.save_for_later,
                     reasoning=evaluation.reasoning,
                     model=self.llm.model_name,
+                    moods=evaluation.moods,
+                    content_kind=evaluation.content_kind,
+                    estimated_minutes=estimate_minutes(
+                        kind=evaluation.content_kind or item.media_type or "other",
+                        body=item.body,
+                        duration_seconds=item.duration_seconds,
+                        model_estimate=evaluation.estimated_minutes or None,
+                    ),
                 )
                 filtered.append(row)
                 stats.evaluated += 1

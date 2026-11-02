@@ -411,12 +411,19 @@ class TestRegistry:
     def test_build_providers_from_settings(self, settings):
         providers = build_providers(settings)
         names = [p.name for p in providers]
-        assert names == ["hackernews", "reddit", "rss", "x"]
+        assert names == ["hackernews", "reddit", "rss", "x", "instagram", "facebook"]
 
     def test_build_mock_providers(self, settings):
         providers = build_providers(settings, mock=True)
         assert all(isinstance(p, MockProvider) for p in providers)
-        assert [p.name for p in providers] == ["hackernews", "reddit", "rss", "x"]
+        assert [p.name for p in providers] == [
+            "hackernews",
+            "reddit",
+            "rss",
+            "x",
+            "instagram",
+            "facebook",
+        ]
 
     def test_unknown_provider_rejected(self, settings):
         from dataclasses import replace

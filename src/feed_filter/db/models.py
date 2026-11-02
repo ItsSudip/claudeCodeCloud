@@ -8,7 +8,7 @@ raw_items          Everything ingested, exactly once per (provider, external_id)
 filtered_items     The LLM's verdict on a raw item: relevance score, theme, takeaways and flags.
 interest_profiles  Snapshots of the interest-profile markdown, so each report records which
                    version of the profile produced it.
-reports            Generated Daily Digest markdown, plus metadata about the run.
+reports            Generated Daily Digest / mood Session markdown, plus metadata about the run.
 """
 
 from __future__ import annotations
@@ -57,6 +57,9 @@ class RawItem(Base):
     source_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)  # upvotes / likes
     comments: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    media_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
@@ -108,6 +111,9 @@ class FilteredItem(Base):
     is_repetitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     save_for_later: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    moods: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    content_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    estimated_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
     model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     evaluated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
@@ -133,6 +139,10 @@ class Report(Base):
     )
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     stats: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="digest")
+    mood: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )

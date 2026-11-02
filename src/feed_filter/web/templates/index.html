@@ -4,11 +4,27 @@
   <aside>
     <h3 class="muted" style="margin-top:0">Past digests</h3>
     <ul>
-      {% for r in reports %}<li><a href="/reports/{{ r.id }}">{{ r.report_date }}</a> <span class="pill">{{ r.item_count }}</span></li>{% else %}<li class="muted">None yet</li>{% endfor %}
+      {% for r in reports %}<li><a href="/reports/{{ r.id }}">{{ r.report_date }}{% if r.kind == 'session' %} · {{ r.mood }} {{ r.target_minutes }}m{% endif %}</a> <span class="pill">{{ r.item_count }}</span></li>{% else %}<li class="muted">None yet</li>{% endfor %}
     </ul>
   </aside>
   <main>
-    <h2 style="margin-top:0">Overview</h2>
+    <h2 style="margin-top:0">What do you feel like?</h2>
+    <form method="post" action="/sessions" class="session-form">
+      <label>Mood
+        <select name="mood">
+          {% for m in moods %}<option value="{{ m.name }}" title="{{ m.description }}">{{ m.name.replace('_', ' ') }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Minutes
+        <input type="number" name="minutes" value="10" min="1" max="240" step="1">
+        <span class="muted">({{ min_minutes }}-{{ max_minutes }} works best)</span>
+      </label>
+      <label class="muted"><input type="checkbox" name="allow_repeats" value="true"> allow repeats</label>
+      <button type="submit">Build my session</button>
+    </form>
+    <p class="muted">A session is a time-boxed playlist of already-scored items that match your mood. Open it, go top to bottom, done.</p>
+
+    <h2>Overview</h2>
     <div class="stats">
       <div class="stat"><b>{{ stats.reports }}</b><span class="muted">reports</span></div>
       <div class="stat"><b>{{ stats.raw_items }}</b><span class="muted">items ingested</span></div>
@@ -17,10 +33,10 @@
     </div>
     {% if reports %}
     <table>
-      <thead><tr><th>Date</th><th>Title</th><th>Items</th><th>Generated</th></tr></thead>
+      <thead><tr><th>Date</th><th>Kind</th><th>Title</th><th>Items</th><th>Generated</th></tr></thead>
       <tbody>
       {% for r in reports %}
-        <tr><td>{{ r.report_date }}</td><td><a href="/reports/{{ r.id }}">{{ r.title }}</a></td><td>{{ r.item_count }}</td><td class="muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td></tr>
+        <tr><td>{{ r.report_date }}</td><td><span class="pill">{{ 'session · ' ~ r.mood if r.kind == 'session' else 'digest' }}</span></td><td><a href="/reports/{{ r.id }}">{{ r.title }}</a></td><td>{{ r.item_count }}</td><td class="muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td></tr>
       {% endfor %}
       </tbody>
     </table>

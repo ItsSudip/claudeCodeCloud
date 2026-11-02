@@ -48,6 +48,35 @@ class TestCLI:
         assert main(["--summarize", "--date", "2026-10-30"]) == 0
         assert "Digest #1" in capsys.readouterr().out
 
+    def test_session_alone_and_combined(self, cli_env, capsys):
+        assert main(["--session", "--mood", "happy", "--minutes", "5"]) == 0
+        out = capsys.readouterr().out
+        assert "# 5-minute session · happy" in out
+        assert "Nothing scored recently" in out  # empty database
+        assert (
+            main(
+                [
+                    "--digest",
+                    "--mock",
+                    "--llm",
+                    "mock",
+                    "--session",
+                    "--mood",
+                    "tired",
+                    "--minutes",
+                    "5",
+                ]
+            )
+            == 0
+        )
+        out = capsys.readouterr().out
+        assert "Digest #2" in out and "# 5-minute session · tired" in out
+        assert "Stored as report #3" in out  # #1 is the empty session above
+        assert main(["--session", "--mood", "furious"]) == 2
+        assert "Unknown mood" in capsys.readouterr().err
+        assert main(["--list-reports"]) == 0
+        assert "session/tired/5m" in capsys.readouterr().out
+
     def test_export_html(self, cli_env, capsys):
         main(["--digest", "--mock", "--llm", "mock"])
         capsys.readouterr()

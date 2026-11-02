@@ -72,6 +72,9 @@ class CollectedItem:
     score: int | None = None
     comments: int | None = None
     published_at: datetime | None = None
+    media_type: str | None = None  # article | post | thread | short_video | long_video | image
+    media_url: str | None = None  # direct video / image URL when known
+    duration_seconds: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
