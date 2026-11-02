@@ -139,6 +139,8 @@ class TestInstagramWeb:
         def handler(request: httpx.Request) -> httpx.Response:
             assert request.headers["x-ig-app-id"] == "936619743392459"
             assert request.headers["Cookie"] == "sessionid=abc"
+            assert request.headers["User-Agent"].startswith("Mozilla/5.0")
+            assert request.headers["X-Requested-With"] == "XMLHttpRequest"
             assert request.url.params["username"] == "dodo"
             return httpx.Response(200, json=payload)
 

@@ -9,8 +9,9 @@ Instagram has no free read API for arbitrary accounts, so this provider layers t
    Docs: https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/business-discovery
 2. **Web profile scrape with your session cookie** - set ``INSTAGRAM_SESSION_COOKIE`` to the
    ``sessionid=...`` cookie from a logged-in browser. Uses the same JSON endpoint the website
-   uses (``/api/v1/users/web_profile_info/``). Instagram changes this without notice and may
-   rate-limit or log out the session; treat it as a plug-in point.
+   uses (``/api/v1/users/web_profile_info/``), sent with browser-like headers because the
+   endpoint answers non-browser clients with a "Page Not Found" HTML page. Instagram changes
+   this without notice and may rate-limit or log out the session; treat it as a plug-in point.
 3. Nothing works -> the collector substitutes the bundled fixture when fallback is enabled.
 
 Reels and videos carry a duration where the API exposes one, so sessions can be timed precisely.
@@ -27,8 +28,34 @@ from feed_filter.providers.base import CollectedItem, Provider, ProviderError, p
 log = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.facebook.com/v21.0"
-WEB_PROFILE_URL = "https://www.instagram.com/api/v1/users/web_profile_info/"
+# instagram.com serves a "Page Not Found" HTML page to this endpoint unless the request looks
+# like the website's own XHR: browser User-Agent, app id, XMLHttpRequest marker. Two hosts serve
+# it; the second is tried when the first answers with HTML.
+WEB_PROFILE_URLS = (
+    "https://www.instagram.com/api/v1/users/web_profile_info/",
+    "https://i.instagram.com/api/v1/users/web_profile_info/",
+)
 WEB_APP_ID = "936619743392459"  # public x-ig-app-id used by instagram.com itself
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+)
+
+
+def web_headers(session_cookie: str | None) -> dict[str, str]:
+    """Headers that make the web profile endpoint answer with JSON instead of a 404 page."""
+    cookie = (session_cookie or "").strip()
+    if cookie and "=" not in cookie:  # a bare value was pasted; name it
+        cookie = f"sessionid={cookie}"
+    return {
+        "User-Agent": BROWSER_USER_AGENT,
+        "x-ig-app-id": WEB_APP_ID,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "*/*",
+        "Referer": "https://www.instagram.com/",
+        "Cookie": cookie,
+    }
+
 
 MEDIA_FIELDS = (
     "id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,"
@@ -142,33 +169,58 @@ class InstagramProvider(Provider):
         return items
 
     # ------------------------------------------------------------------ strategy 2: web scrape
+    def _fetch_web_profile(self, handle: str, headers: dict[str, str]) -> dict:
+        """Try each web host; return the user object or raise ProviderError."""
+        last_error = "no response"
+        for url in WEB_PROFILE_URLS:
+            response = self._client.get(url, params={"username": handle}, headers=headers)
+            if response.status_code in (401, 403, 429):
+                raise ProviderError(
+                    f"Instagram web endpoint refused @{handle} (HTTP {response.status_code}); "
+                    "refresh INSTAGRAM_SESSION_COOKIE"
+                )
+            content_type = response.headers.get("content-type", "")
+            if response.status_code == 404 and "json" in content_type:
+                raise ProviderError(f"@{handle}: account not found")
+            if "json" not in content_type:
+                # HTML back: either a login wall or the host refusing non-browser traffic.
+                body = response.text
+                if "logged-in" in body or "not-logged-in" not in body:
+                    last_error = f"HTTP {response.status_code} HTML from {url} (endpoint blocked)"
+                else:
+                    raise ProviderError(
+                        f"@{handle}: Instagram returned a login page; INSTAGRAM_SESSION_COOKIE "
+                        "is missing or expired"
+                    )
+                continue
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                last_error = f"invalid JSON from {url}: {exc}"
+                continue
+            user = payload.get("data", {}).get("user")
+            if user is None:
+                last_error = f"{url}: no user in response ({str(payload)[:120]})"
+                continue
+            return user
+        raise ProviderError(f"@{handle}: {last_error}")
+
     def _collect_web(self) -> list[CollectedItem]:
-        headers = {
-            "x-ig-app-id": WEB_APP_ID,
-            "Cookie": self.session_cookie or "",
-            "Referer": "https://www.instagram.com/",
-        }
+        headers = web_headers(self.session_cookie)
         items: list[CollectedItem] = []
         errors: list[str] = []
         for handle in self.accounts:
             if handle.lower() == "me":
                 continue
             try:
-                response = self._client.get(
-                    WEB_PROFILE_URL, params={"username": handle}, headers=headers
-                )
-                if response.status_code in (401, 403, 429):
-                    raise ProviderError(
-                        f"Instagram web endpoint refused @{handle} (HTTP {response.status_code}); "
-                        "refresh INSTAGRAM_SESSION_COOKIE"
-                    )
-                response.raise_for_status()
-                user = response.json().get("data", {}).get("user") or {}
+                user = self._fetch_web_profile(handle, headers)
             except httpx.HTTPError as exc:
                 errors.append(f"@{handle}: {exc}")
                 continue
-            except ValueError:
-                errors.append(f"@{handle}: non-JSON response (login wall?)")
+            except ProviderError as exc:
+                if "refresh INSTAGRAM_SESSION_COOKIE" in str(exc) or "login page" in str(exc):
+                    raise
+                errors.append(str(exc))
                 continue
             edges = user.get("edge_owner_to_timeline_media", {}).get("edges", [])
             for edge in edges[: self.limit]:
