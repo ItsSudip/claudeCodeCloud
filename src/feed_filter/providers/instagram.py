@@ -44,10 +44,10 @@ BROWSER_USER_AGENT = (
 
 def web_headers(session_cookie: str | None) -> dict[str, str]:
     """Headers that make the web profile endpoint answer with JSON instead of a 404 page."""
-    cookie = (session_cookie or "").strip()
+    cookie = (session_cookie or "").strip().rstrip(";")
     if cookie and "=" not in cookie:  # a bare value was pasted; name it
         cookie = f"sessionid={cookie}"
-    return {
+    headers = {
         "User-Agent": BROWSER_USER_AGENT,
         "x-ig-app-id": WEB_APP_ID,
         "X-Requested-With": "XMLHttpRequest",
@@ -55,6 +55,12 @@ def web_headers(session_cookie: str | None) -> dict[str, str]:
         "Referer": "https://www.instagram.com/",
         "Cookie": cookie,
     }
+    # Instagram expects the CSRF cookie echoed as a header when it is present.
+    for part in cookie.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name.strip().lower() == "csrftoken" and value:
+            headers["x-csrftoken"] = value.strip()
+    return headers
 
 
 MEDIA_FIELDS = (
